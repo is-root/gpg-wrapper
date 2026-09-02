@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - "v*"
+      - "v*.*.*"
 
 permissions:
   contents: write
@@ -15,7 +15,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install system dependencies
         run: |
@@ -32,7 +32,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache Cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -46,27 +46,39 @@ jobs:
         run: cargo build --release
 
       - name: Package
+        shell: bash
         run: |
-          mkdir -p dist/gpg-wrapper
-          cp target/release/gpg-wrapper dist/gpg-wrapper/
-          cp README.md dist/gpg-wrapper/
-          cp gpg-wrapper.desktop dist/gpg-wrapper/
+          set -euo pipefail
 
-          tar -C dist -czf \
-            gpg-wrapper-${{ github.ref_name }}-linux-x86_64.tar.gz \
-            gpg-wrapper
+          VERSION="${GITHUB_REF_NAME}"
+          PACKAGE="gpg-wrapper-${VERSION}-linux-x86_64.tar.gz"
+
+          mkdir -p dist/package
+
+          cp target/release/gpg-wrapper dist/package/
+          cp README.md dist/package/
+          cp gpg-wrapper.desktop dist/package/
+
+          tar -czf "dist/${PACKAGE}" -C dist/package .
+
+          echo "Created:"
+          ls -lh "dist/${PACKAGE}"
 
       - name: Generate SHA256
+        shell: bash
         run: |
+          set -euo pipefail
+
           cd dist
-          sha256sum \
-            gpg-wrapper-${{ github.ref_name }}-linux-x86_64.tar.gz \
-            > SHA256SUMS
+          sha256sum ./*.tar.gz > SHA256SUMS
+
+          echo "Checksums:"
+          cat SHA256SUMS
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
           files: |
-            dist/gpg-wrapper-${{ github.ref_name }}-linux-x86_64.tar.gz
+            dist/*.tar.gz
             dist/SHA256SUMS
