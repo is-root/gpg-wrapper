@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=GPG Wrapper
+Comment=Manage GnuPG keys and encrypt/decrypt text
+Exec=gpg-wrapper
+Terminal=false
+Categories=Utility;Security;
+Keywords=GPG;GnuPG;PGP;Encryption;Security;

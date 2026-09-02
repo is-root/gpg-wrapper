@@ -1,0 +1,17 @@
+[package]
+name = "gpg-wrapper"
+version = "0.1.0"
+edition = "2024"
+description = "A Linux desktop GUI for managing GnuPG keys and encrypting/decrypting text."
+license = "MIT"
+
+[dependencies]
+eframe = "0.36.1"
+arboard = { version = "3.6.1", features = ["wayland-data-control"] }
+rfd = "0.17.2"
+anyhow = "1.0"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
