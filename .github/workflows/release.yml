@@ -1,0 +1,72 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    name: Build Linux x86_64
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libxcb1-dev \
+            libxkbcommon-dev \
+            libxkbcommon-x11-dev \
+            libwayland-dev \
+            pkg-config
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Package
+        run: |
+          mkdir -p dist/gpg-wrapper
+          cp target/release/gpg-wrapper dist/gpg-wrapper/
+          cp README.md dist/gpg-wrapper/
+          cp gpg-wrapper.desktop dist/gpg-wrapper/
+
+          tar -C dist -czf \
+            gpg-wrapper-${{ github.ref_name }}-linux-x86_64.tar.gz \
+            gpg-wrapper
+
+      - name: Generate SHA256
+        run: |
+          cd dist
+          sha256sum \
+            gpg-wrapper-${{ github.ref_name }}-linux-x86_64.tar.gz \
+            > SHA256SUMS
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/gpg-wrapper-${{ github.ref_name }}-linux-x86_64.tar.gz
+            dist/SHA256SUMS
