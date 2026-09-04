@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use arboard::Clipboard;
 use eframe::egui;
 use rfd::{FileDialog, MessageButtons, MessageDialog, MessageLevel};
@@ -84,6 +84,9 @@ impl KeyAlgorithm {
             Self::Rsa3072 => "rsa3072/cert,sign+rsa3072/encr",
             Self::Rsa4096 => "rsa4096/cert,sign+rsa4096/encr",
             Self::Ed25519 => "ed25519/cert,sign+cv25519/encr",
+            // Explicitly request GnuPG's normal cert/sign primary and
+            // encryption-capable subkey layout instead of relying on the
+            // user's configured default-new-key-algo.
             Self::Default => "default",
         }
     }
@@ -179,6 +182,8 @@ impl GpgApp {
 
         let result = if self.algorithm == KeyAlgorithm::Default {
             gpg_run(&[
+                "--default-new-key-algo",
+                "default/cert,sign+default/encr",
                 "--quick-generate-key",
                 &uid,
                 "default",
@@ -231,7 +236,9 @@ impl GpgApp {
             Some(k) => k.clone(),
             None => {
                 self.pending_delete_fpr = None;
-                self.set_error(anyhow!("Selected key no longer exists; refresh the key list"));
+                self.set_error(anyhow!(
+                    "Selected key no longer exists; refresh the key list"
+                ));
                 return;
             }
         };
@@ -280,7 +287,8 @@ impl GpgApp {
                 if let Err(e) = write_or_clipboard(&bytes, "Export key") {
                     self.set_error(e);
                 } else {
-                    self.status = format!("Exported {} key for {}", self.key_material.label(), key.uid);
+                    self.status =
+                        format!("Exported {} key for {}", self.key_material.label(), key.uid);
                     self.error = None;
                 }
             }
@@ -334,7 +342,9 @@ impl GpgApp {
                 Err(e) => self.set_error(e),
             },
             InputSource::File => {
-                let Some(path) = FileDialog::new().pick_file() else { return; };
+                let Some(path) = FileDialog::new().pick_file() else {
+                    return;
+                };
                 match fs::read_to_string(&path) {
                     Ok(text) => self.crypto_text = text,
                     Err(e) => self.set_error(anyhow!("Read {}: {e}", path.display())),
@@ -353,7 +363,9 @@ impl GpgApp {
     fn encrypt(&mut self) {
         let input = self.crypto_text.clone();
         if input.is_empty() {
-            self.set_error(anyhow!("Enter a message or load one from the clipboard/file"));
+            self.set_error(anyhow!(
+                "Enter a message or load one from the clipboard/file"
+            ));
             return;
         }
         let key = match self.selected_key() {
@@ -365,12 +377,7 @@ impl GpgApp {
         };
 
         let result = gpg_run_with_stdin(
-            &[
-                "--armor",
-                "--encrypt",
-                "--recipient",
-                &key.fingerprint,
-            ],
+            &["--armor", "--encrypt", "--recipient", &key.fingerprint],
             input.as_bytes(),
         );
 
@@ -394,7 +401,9 @@ impl GpgApp {
     fn decrypt(&mut self) {
         let input = self.crypto_text.clone();
         if input.is_empty() {
-            self.set_error(anyhow!("Enter armored ciphertext or load it from the clipboard/file"));
+            self.set_error(anyhow!(
+                "Enter armored ciphertext or load it from the clipboard/file"
+            ));
             return;
         }
 
@@ -709,22 +718,17 @@ fn parse_output(output: Output) -> Result<CommandOutput> {
         };
         return Err(anyhow!("GPG failed ({}): {}", output.status, detail));
     }
-    Ok(CommandOutput { stdout_text, stderr_text })
+    Ok(CommandOutput {
+        stdout_text,
+        stderr_text,
+    })
 }
 
 fn list_keys() -> Result<Vec<Key>> {
     // --with-colons is the script-friendly machine-readable format documented by GnuPG.
     // We list public keys and separately collect secret-key fingerprints.
-    let public = gpg_run(&[
-        "--with-colons",
-        "--fixed-list-mode",
-        "--list-keys",
-    ])?;
-    let secret = gpg_run(&[
-        "--with-colons",
-        "--fixed-list-mode",
-        "--list-secret-keys",
-    ])?;
+    let public = gpg_run(&["--with-colons", "--fixed-list-mode", "--list-keys"])?;
+    let secret = gpg_run(&["--with-colons", "--fixed-list-mode", "--list-secret-keys"])?;
 
     let secret_fprs = parse_secret_fprs(&secret.stdout_text);
     Ok(parse_public_keys(&public.stdout_text, &secret_fprs))
@@ -734,7 +738,8 @@ fn parse_secret_fprs(s: &str) -> std::collections::HashSet<String> {
     s.lines()
         .filter_map(|line| {
             let fields: Vec<&str> = line.split(':').collect();
-            (fields.first().copied() == Some("fpr")).then(|| fields.get(9).copied().unwrap_or_default().to_owned())
+            (fields.first().copied() == Some("fpr"))
+                .then(|| fields.get(9).copied().unwrap_or_default().to_owned())
         })
         .filter(|f| !f.is_empty())
         .collect()
@@ -790,7 +795,9 @@ fn parse_public_keys(s: &str, secret_fprs: &std::collections::HashSet<String>) -
     }
 
     // Only show entries that have a fingerprint. This avoids presenting malformed records.
-    keys.into_iter().filter(|k| !k.fingerprint.is_empty()).collect()
+    keys.into_iter()
+        .filter(|k| !k.fingerprint.is_empty())
+        .collect()
 }
 
 fn decode_gpg_colon_field(s: &str) -> String {
@@ -819,7 +826,10 @@ fn export_public(fpr: &str) -> Result<Vec<u8>> {
         .output()
         .context("Could not start gpg")?;
     if !out.status.success() {
-        return Err(anyhow!("GPG export failed: {}", String::from_utf8_lossy(&out.stderr).trim()));
+        return Err(anyhow!(
+            "GPG export failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
     }
     Ok(out.stdout)
 }
@@ -830,19 +840,26 @@ fn export_secret(fpr: &str) -> Result<Vec<u8>> {
         .output()
         .context("Could not start gpg")?;
     if !out.status.success() {
-        return Err(anyhow!("GPG secret-key export failed: {}", String::from_utf8_lossy(&out.stderr).trim()));
+        return Err(anyhow!(
+            "GPG secret-key export failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
     }
     Ok(out.stdout)
 }
 
 fn clipboard_get() -> Result<String> {
     let mut clipboard = Clipboard::new().context("Could not access the system clipboard")?;
-    clipboard.get_text().context("Clipboard does not contain UTF-8 text")
+    clipboard
+        .get_text()
+        .context("Clipboard does not contain UTF-8 text")
 }
 
 fn clipboard_set(text: &str) -> Result<()> {
     let mut clipboard = Clipboard::new().context("Could not access the system clipboard")?;
-    clipboard.set_text(text.to_owned()).context("Could not write to clipboard")
+    clipboard
+        .set_text(text.to_owned())
+        .context("Could not write to clipboard")
 }
 
 fn write_or_clipboard(data: &[u8], title: &str) -> Result<()> {
@@ -888,4 +905,3 @@ fn main() -> eframe::Result {
         Box::new(|_cc| Ok(Box::new(GpgApp::default()))),
     )
 }
-
