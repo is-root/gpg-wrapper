@@ -284,13 +284,50 @@ impl GpgApp {
 
         match data {
             Ok(bytes) => {
-                if let Err(e) = write_or_clipboard(&bytes, "Export key") {
-                    self.set_error(e);
-                } else {
-                    self.status =
-                        format!("Exported {} key for {}", self.key_material.label(), key.uid);
-                    self.error = None;
+                match std::str::from_utf8(&bytes)
+                    .context("Exported key is not valid UTF-8 text")
+                    .and_then(clipboard_set)
+                {
+                    Ok(()) => {
+                        self.status = format!(
+                            "Exported {} key to clipboard for {}",
+                            self.key_material.label(),
+                            key.uid
+                        );
+                        self.error = None;
+                    }
+                    Err(e) => self.set_error(e),
                 }
+            }
+            Err(e) => self.set_error(e),
+        }
+    }
+
+    fn export_selected_to_file(&mut self) {
+        let key = match self.selected_key() {
+            Ok(k) => k.clone(),
+            Err(e) => {
+                self.set_error(e);
+                return;
+            }
+        };
+        let data = match self.key_material {
+            KeyMaterial::Public => export_public(&key.fingerprint),
+            KeyMaterial::Secret => export_secret(&key.fingerprint),
+        };
+        match data.and_then(|bytes| {
+            let Some(path) = FileDialog::new()
+                .set_file_name("key.asc")
+                .add_filter("ASCII armored key", &["asc"])
+                .save_file()
+            else {
+                return Ok(());
+            };
+            fs::write(&path, bytes).with_context(|| format!("Could not write {}", path.display()))
+        }) {
+            Ok(()) => {
+                self.status = format!("Exported {} key to file", self.key_material.label());
+                self.error = None;
             }
             Err(e) => self.set_error(e),
         }
@@ -562,9 +599,14 @@ impl eframe::App for GpgApp {
                     ui.radio_value(&mut self.key_material, KeyMaterial::Public, "Public");
                     ui.radio_value(&mut self.key_material, KeyMaterial::Secret, "Private / Secret");
                 });
-                if cols[0].button("Export selected key").clicked() {
+                if cols[0].button("Export selected key to clipboard").clicked() {
                     self.export_selected();
                 }
+                cols[0].horizontal(|ui| {
+                    if ui.button("Export selected key to file").clicked() {
+                        self.export_selected_to_file();
+                    }
+                });
                 cols[0].horizontal(|ui| {
                     if ui.button("Read key from clipboard").clicked() {
                         self.import_from_clipboard();
@@ -824,14 +866,31 @@ fn export_public(fpr: &str) -> Result<Vec<u8>> {
     let out = gpg_command()
         .args(["--armor", "--export", fpr])
         .output()
-        .context("Could not start gpg")?;
+        .with_context(|| format!("Could not run `gpg --armor --export {fpr}`"))?;
     if !out.status.success() {
         return Err(anyhow!(
             "GPG export failed: {}",
             String::from_utf8_lossy(&out.stderr).trim()
         ));
     }
-    Ok(out.stdout)
+
+    // GnuPG normally emits these delimiters itself. Rebuild the block if a
+    // configured GPG option or wrapper has returned only the armored body.
+    let exported =
+        String::from_utf8(out.stdout).context("GPG export was not valid UTF-8 armored text")?;
+    let begin = "-----BEGIN PGP PUBLIC KEY BLOCK-----";
+    let end = "-----END PGP PUBLIC KEY BLOCK-----";
+    let body = exported
+        .lines()
+        .filter(|line| *line != begin && *line != end)
+        .collect::<Vec<_>>()
+        .join("\n");
+    let body = body.trim();
+    if body.is_empty() {
+        return Err(anyhow!("GPG exported an empty public key"));
+    }
+
+    Ok(format!("{begin}\n{body}\n{end}\n").into_bytes())
 }
 
 fn export_secret(fpr: &str) -> Result<Vec<u8>> {
@@ -862,20 +921,22 @@ fn clipboard_set(text: &str) -> Result<()> {
         .context("Could not write to clipboard")
 }
 
+#[allow(dead_code)]
 fn write_or_clipboard(data: &[u8], title: &str) -> Result<()> {
+    let text = std::str::from_utf8(data)
+        .context("Exported key is not UTF-8 text")?
+        .to_owned();
     let answer = MessageDialog::new()
         .set_level(MessageLevel::Info)
         .set_title(title)
-        .set_description("Yes = clipboard, No = file, Cancel = abort")
-        .set_buttons(MessageButtons::YesNoCancel)
+        .set_description(
+            "The exported key will be copied to the clipboard. Yes = save a file, No = cancel",
+        )
+        .set_buttons(MessageButtons::YesNo)
         .show();
 
     match answer {
         rfd::MessageDialogResult::Yes => {
-            clipboard_set(std::str::from_utf8(data).context("Exported key is not UTF-8 text")?)?;
-            Ok(())
-        }
-        rfd::MessageDialogResult::No => {
             let Some(path) = FileDialog::new()
                 .set_file_name("key.asc")
                 .add_filter("ASCII armored key", &["asc"])
@@ -883,7 +944,12 @@ fn write_or_clipboard(data: &[u8], title: &str) -> Result<()> {
             else {
                 return Ok(());
             };
-            fs::write(&path, data).with_context(|| format!("Could not write {}", path.display()))
+            fs::write(&path, text.as_bytes())
+                .with_context(|| format!("Could not write {}", path.display()))
+        }
+        rfd::MessageDialogResult::No => {
+            clipboard_set(&text)?;
+            Ok(())
         }
         rfd::MessageDialogResult::Cancel => Ok(()),
         _ => Ok(()),
