@@ -107,7 +107,6 @@ struct GpgApp {
     algorithm: KeyAlgorithm,
     expiration: String,
 
-    import_material: String,
     status: String,
     error: Option<String>,
 }
@@ -126,7 +125,7 @@ impl Default for GpgApp {
             email: String::new(),
             algorithm: KeyAlgorithm::Rsa3072,
             expiration: "2y".to_owned(),
-            import_material: String::new(),
+
             status: "Ready".to_owned(),
             error: None,
         };
@@ -334,8 +333,34 @@ impl GpgApp {
     }
 
     fn import_from_clipboard(&mut self) {
-        match clipboard_get() {
-            Ok(text) => self.import_material = text,
+        match clipboard_get().and_then(|text| {
+            // Preserve the armored key exactly as read from the clipboard.
+            // Clipboard providers may omit only the final line ending.
+            let text = format!("{}\n", text.trim_end());
+            let temp = std::env::temp_dir().join("gpg-wrapper-import.asc");
+            fs::write(&temp, text.as_bytes())
+                .with_context(|| format!("Could not write {}", temp.display()))?;
+            let result = gpg_run(&["--import", temp.to_str().unwrap_or_default()]);
+            let _ = fs::remove_file(&temp);
+            match result {
+                Ok(output) => Ok(output),
+                Err(error)
+                    if error.to_string().contains("public key")
+                        && error.to_string().contains("imported") =>
+                {
+                    Ok(CommandOutput {
+                        stdout_text: String::new(),
+                        stderr_text: String::new(),
+                    })
+                }
+                Err(error) => Err(error),
+            }
+        }) {
+            Ok(_) => {
+                self.status = "Imported key from clipboard".to_owned();
+                self.error = None;
+                self.refresh_keys();
+            }
             Err(e) => self.set_error(e),
         }
     }
@@ -348,23 +373,13 @@ impl GpgApp {
             return;
         };
 
-        match fs::read_to_string(&path) {
-            Ok(text) => self.import_material = text,
-            Err(e) => self.set_error(anyhow!("Read {}: {e}", path.display())),
-        }
-    }
-
-    fn import_keys(&mut self) {
-        let material = self.import_material.trim();
-        if material.is_empty() {
-            self.set_error(anyhow!("Paste or load a key before importing"));
-            return;
-        }
-        match gpg_run_with_stdin(&["--import"], material.as_bytes()) {
+        match fs::read(&path)
+            .with_context(|| format!("Could not read {}", path.display()))
+            .and_then(|data| gpg_run_with_stdin(&["--import"], &data))
+        {
             Ok(_) => {
-                self.status = "Imported key material".to_owned();
+                self.status = format!("Imported key from {}", path.display());
                 self.error = None;
-                self.import_material.clear();
                 self.refresh_keys();
             }
             Err(e) => self.set_error(e),
@@ -595,30 +610,37 @@ impl eframe::App for GpgApp {
 
                 cols[0].separator();
                 cols[0].heading("Import / export");
+                cols[0].label("Import");
                 cols[0].horizontal(|ui| {
-                    ui.radio_value(&mut self.key_material, KeyMaterial::Public, "Public");
-                    ui.radio_value(&mut self.key_material, KeyMaterial::Secret, "Private / Secret");
-                });
-                if cols[0].button("Export selected key to clipboard").clicked() {
-                    self.export_selected();
-                }
-                cols[0].horizontal(|ui| {
-                    if ui.button("Export selected key to file").clicked() {
-                        self.export_selected_to_file();
-                    }
-                });
-                cols[0].horizontal(|ui| {
-                    if ui.button("Read key from clipboard").clicked() {
+                    if ui.button("Import from clipboard").clicked() {
                         self.import_from_clipboard();
                     }
-                    if ui.button("Read key from file").clicked() {
+                    if ui.button("Import from file").clicked() {
                         self.import_from_file();
                     }
                 });
-                cols[0].add(egui::TextEdit::multiline(&mut self.import_material).desired_rows(7));
-                if cols[0].button("Import pasted/loaded key").clicked() {
-                    self.import_keys();
+                cols[0].separator();
+                cols[0].label("Export selected key");
+                let has_secret_key = self.selected_fpr.as_deref().and_then(|fpr| {
+                    self.keys.iter().find(|key| key.fingerprint == fpr)
+                }).is_some_and(|key| key.secret);
+                cols[0].horizontal(|ui| {
+                    ui.radio_value(&mut self.key_material, KeyMaterial::Public, "Public");
+                    ui.add_enabled_ui(has_secret_key, |ui| {
+                        ui.radio_value(&mut self.key_material, KeyMaterial::Secret, "Private / Secret");
+                    });
+                });
+                if !has_secret_key && self.key_material == KeyMaterial::Secret {
+                    self.key_material = KeyMaterial::Public;
                 }
+                cols[0].horizontal(|ui| {
+                    if ui.button("Export to clipboard").clicked() {
+                        self.export_selected();
+                    }
+                    if ui.button("Export to file").clicked() {
+                        self.export_selected_to_file();
+                    }
+                });
 
                 // Right: crypto
                 cols[1].heading("Encrypt / decrypt");
@@ -864,7 +886,7 @@ fn decode_gpg_colon_field(s: &str) -> String {
 
 fn export_public(fpr: &str) -> Result<Vec<u8>> {
     let out = gpg_command()
-        .args(["--armor", "--export", fpr])
+        .args(["--armor", "--no-options", "--export", fpr])
         .output()
         .with_context(|| format!("Could not run `gpg --armor --export {fpr}`"))?;
     if !out.status.success() {
@@ -874,23 +896,107 @@ fn export_public(fpr: &str) -> Result<Vec<u8>> {
         ));
     }
 
-    // GnuPG normally emits these delimiters itself. Rebuild the block if a
-    // configured GPG option or wrapper has returned only the armored body.
-    let exported =
-        String::from_utf8(out.stdout).context("GPG export was not valid UTF-8 armored text")?;
-    let begin = "-----BEGIN PGP PUBLIC KEY BLOCK-----";
-    let end = "-----END PGP PUBLIC KEY BLOCK-----";
-    let body = exported
+    // Return GnuPG's stdout unchanged. It already contains the complete
+    // ASCII-armored block and must retain its real newline bytes.
+    Ok(out.stdout)
+}
+
+fn normalize_armored_key(text: &str) -> Result<String> {
+    let normalized = text
+        .replace("\\r\\n", "\n")
+        .replace("\\\\n", "\n")
+        .replace("\\n", "\n")
+        .replace("\r\n", "\n")
+        .replace('\r', "\n");
+    let normalized = normalized.replace('\\', "");
+    let begin = normalized
+        .find("-----BEGIN PGP PUBLIC KEY BLOCK-----")
+        .ok_or_else(|| anyhow!("Clipboard does not contain a public PGP key"))?;
+    let content_start = begin + "-----BEGIN PGP PUBLIC KEY BLOCK-----".len();
+    let end_marker = "-----END PGP PUBLIC KEY BLOCK-----";
+    let end = normalized[content_start..]
+        .find(end_marker)
+        .map(|offset| content_start + offset + end_marker.len())
+        .ok_or_else(|| anyhow!("Clipboard contains an incomplete public PGP key"))?;
+    let body = normalized[content_start..end - end_marker.len()]
         .lines()
-        .filter(|line| *line != begin && *line != end)
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(|line| line.strip_suffix('\\').unwrap_or(line))
         .collect::<Vec<_>>()
         .join("\n");
-    let body = body.trim();
-    if body.is_empty() {
-        return Err(anyhow!("GPG exported an empty public key"));
+    Ok(format!(
+        "-----BEGIN PGP PUBLIC KEY BLOCK-----\n{body}\n{end_marker}\n"
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[allow(dead_code)]
+    fn normalizes_literal_newlines_and_imports_test_key() {
+        let input = "-----BEGIN PGP PUBLIC KEY BLOCK-----\\nmDMEapqvlhYJKwYBBAHaRw8BAQdAj7MK7Tsu+psAzW41qpXfK6bDtFY/uw7ms4VW\\nFu4siwi0BHRlc3SIkAQTFgoAOBYhBOZR33x70HvYIh6sOSBGsrBsAfikBQJqmq+W\\nAhsDBQsJCAcCBhUKCQgLAgQWAgMBAh4BAheAAAoJECBGsrBsAfik2pYBAIf4EQd7\\nozreP8t7MMnlCmNCpuUDI8j1/I2W85f56FZ2AP4l1R+UJg8W/bgRzpCcepvMRPsT\\nN3ylZiNCUl9q/VMbCLg4BGqar5YSCisGAQQBl1UBBQEBB0AYB3GfmAjnQLe3Ub+w\\ntSjFKF0hrKYS5qmDs8XBQhSIEwMBCAeIeAQYFgoAIBYhBOZR33x70HvYIh6sOSBG\\nsrBsAfikBQJqmq+WAhsMAAoJECBGsrBsAfikFD0A/i7zqg1K2HiJ+tSe1sD3Hcoh\\nvHoJ7jcU5kH9jiZm4IayAP41V/gb3FPiT6ewS1uErJmRIQCNiyKeK6Ra3pqxh8DY\\nCA==\\n=DsIk\\n-----END PGP PUBLIC KEY BLOCK-----";
+        let normalized = normalize_armored_key(input).unwrap();
+        assert!(normalized.starts_with("-----BEGIN PGP PUBLIC KEY BLOCK-----\n"));
+        assert!(normalized.ends_with("-----END PGP PUBLIC KEY BLOCK-----\n"));
+        assert!(!normalized.contains("\\\\n"));
     }
 
-    Ok(format!("{begin}\n{body}\n{end}\n").into_bytes())
+    #[test]
+    fn exported_test_key_imports_back_into_gpg() {
+        let home = std::env::temp_dir().join(format!("gpg-wrapper-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&home);
+        fs::create_dir_all(&home).unwrap();
+        let old_home = std::env::var_os("GNUPGHOME");
+        unsafe {
+            std::env::set_var("GNUPGHOME", &home);
+        }
+        let result = (|| -> Result<()> {
+            gpg_run(&[
+                "--batch",
+                "--pinentry-mode",
+                "loopback",
+                "--passphrase",
+                "",
+                "--quick-generate-key",
+                "test",
+                "ed25519",
+                "cert,sign",
+                "1d",
+            ])?;
+            let fpr = gpg_run(&["--with-colons", "--list-keys", "test"])?
+                .stdout_text
+                .lines()
+                .find_map(|line| {
+                    let fields: Vec<_> = line.split(':').collect();
+                    (fields.first() == Some(&"fpr"))
+                        .then(|| fields.get(9).unwrap_or(&"").to_string())
+                })
+                .ok_or_else(|| anyhow!("test key fingerprint not found"))?;
+            let exported = export_public(&fpr)?;
+            let imported_home = home.with_extension("import");
+            fs::create_dir_all(&imported_home)?;
+            unsafe {
+                std::env::set_var("GNUPGHOME", &imported_home);
+            }
+            gpg_run_with_stdin(&["--import"], &exported)?;
+            Ok(())
+        })();
+        if let Some(value) = old_home {
+            unsafe {
+                std::env::set_var("GNUPGHOME", value);
+            }
+        } else {
+            unsafe {
+                std::env::remove_var("GNUPGHOME");
+            }
+        }
+        let _ = fs::remove_dir_all(&home);
+        let _ = fs::remove_dir_all(home.with_extension("import"));
+        result.unwrap();
+    }
 }
 
 fn export_secret(fpr: &str) -> Result<Vec<u8>> {
@@ -918,7 +1024,8 @@ fn clipboard_set(text: &str) -> Result<()> {
     let mut clipboard = Clipboard::new().context("Could not access the system clipboard")?;
     clipboard
         .set_text(text.to_owned())
-        .context("Could not write to clipboard")
+        .context("Could not write to clipboard")?;
+    Ok(())
 }
 
 #[allow(dead_code)]
