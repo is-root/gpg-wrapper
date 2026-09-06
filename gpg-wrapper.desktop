@@ -2,6 +2,7 @@
 Type=Application
 Name=GPG Wrapper
 Comment=Manage GnuPG keys and encrypt/decrypt text
+Icon=gpg-wrapper-padlock
 Exec=gpg-wrapper
 Terminal=false
 Categories=Utility;Security;

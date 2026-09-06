@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">GPG Wrapper padlock</title>
+  <desc id="desc">A stylized navy padlock with a golden keyhole.</desc>
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#214d86"/>
+      <stop offset="1" stop-color="#102a52"/>
+    </linearGradient>
+    <linearGradient id="shackle" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5f86b8"/>
+      <stop offset="1" stop-color="#2b5287"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="7" flood-color="#07152b" flood-opacity=".28"/>
+    </filter>
+  </defs>
+  <path d="M72 111V78c0-31 25-56 56-56s56 25 56 56v33h-20V78c0-20-16-36-36-36S92 58 92 78v33Z" fill="url(#shackle)" filter="url(#shadow)"/>
+  <rect x="40" y="101" width="176" height="125" rx="22" fill="url(#body)" filter="url(#shadow)"/>
+  <path d="M40 123c0-12 10-22 22-22h132c12 0 22 10 22 22v18H40Z" fill="#2f65a3" opacity=".55"/>
+  <circle cx="128" cy="158" r="18" fill="#f3bd45"/>
+  <path d="M118 169h20l5 31h-30Z" fill="#f3bd45"/>
+  <circle cx="128" cy="158" r="7" fill="#fff2b8" opacity=".7"/>
+</svg>
