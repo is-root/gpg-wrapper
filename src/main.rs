@@ -429,7 +429,14 @@ impl GpgApp {
         };
 
         let result = gpg_run_with_stdin(
-            &["--armor", "--encrypt", "--recipient", &key.fingerprint],
+            &[
+                "--armor",
+                "--trust-model",
+                "always",
+                "--encrypt",
+                "--recipient",
+                &key.fingerprint,
+            ],
             input.as_bytes(),
         );
 
@@ -738,6 +745,9 @@ fn gpg_command() -> Command {
     let mut cmd = Command::new("gpg");
     cmd.env("LC_ALL", "C");
     cmd.env("LANG", "C");
+    // Crypto operations must never wait for an interactive terminal or
+    // pinentry dialog that the GUI cannot display.
+    cmd.arg("--batch");
     cmd
 }
 
