@@ -12,6 +12,7 @@ struct Key {
     created: String,
     expires: String,
     key_type: String,
+    key_size: String,
     capabilities: String,
     secret: bool,
 }
@@ -573,9 +574,10 @@ impl eframe::App for GpgApp {
                                 format!("  •  Exp: {}", key.expires)
                             };
                             let label = format!(
-                                "{}\n{}\n{}{}",
+                                "{}\n{}\nAlgorithm: {}\n{}{}",
                                 key.uid,
                                 short_fingerprint(&key.fingerprint),
+                                key_algorithm_label(key),
                                 if key.secret { "Secret: yes" } else { "Secret: no" },
                                 expires,
                             );
@@ -734,6 +736,23 @@ fn build_uid(name: &str, email: &str) -> String {
     }
 }
 
+fn key_algorithm_label(key: &Key) -> String {
+    let algorithm = match key.key_type.as_str() {
+        "1" => "RSA",
+        "17" => "DSA",
+        "18" => "ECDH",
+        "19" => "ECDSA",
+        "22" => "EdDSA",
+        value if !value.is_empty() => value,
+        _ => "Unknown",
+    };
+    if key.key_size.is_empty() {
+        algorithm.to_owned()
+    } else {
+        format!("{} {}-bit", algorithm, key.key_size)
+    }
+}
+
 fn short_fingerprint(fpr: &str) -> String {
     if fpr.len() <= 20 {
         return fpr.to_owned();
@@ -841,6 +860,7 @@ fn parse_public_keys(s: &str, secret_fprs: &std::collections::HashSet<String>) -
                     created,
                     expires,
                     key_type: key_type.to_owned(),
+                    key_size: key_length.to_owned(),
                     capabilities,
                     secret: false,
                 });

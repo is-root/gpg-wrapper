@@ -1,6 +1,6 @@
-# GPG Wrapper for Linux
+# GPG Wrapper
 
-A small Rust + egui desktop GUI around the system `gpg` binary.
+A small Rust + egui desktop GUI around the system `gpg` binary, available for Linux and macOS.
 
 ## Features
 
@@ -16,21 +16,49 @@ A small Rust + egui desktop GUI around the system `gpg` binary.
 
 The application does **not** store GPG passphrases. GnuPG and the configured pinentry program handle passphrase prompts.
 
-## Requirements
+## Availability and requirements
+
+GPG Wrapper is available for:
 
 - Linux
-- GnuPG (`gpg`) installed and available in `PATH`
-- Rust toolchain (Rust 2024 edition)
-- A working desktop session/clipboard
+- macOS 12 or later
 
-For Debian/Ubuntu, install GPG and the common native build dependencies used by eframe/rfd as appropriate for your distribution, for example:
+The only runtime requirement is **GnuPG**, with the `gpg` command available in `PATH`.
+
+### Install GnuPG on Linux
+
+Debian/Ubuntu:
 
 ```bash
 sudo apt update
-sudo apt install gnupg pkg-config libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev
+sudo apt install gnupg
 ```
 
-## Build
+Fedora:
+
+```bash
+sudo dnf install gnupg2
+```
+
+Arch Linux:
+
+```bash
+sudo pacman -S gnupg
+```
+
+### Install GnuPG on macOS
+
+Using Homebrew:
+
+```bash
+brew install gnupg
+```
+
+The macOS release is currently an unsigned `.dmg`. macOS may require opening it through **System Settings → Privacy & Security → Open Anyway**. Code signing and notarization are not included yet.
+
+## Build from source
+
+Building from source additionally requires the Rust toolchain and platform-specific native build dependencies.
 
 ```bash
 cargo build --release
@@ -52,7 +80,7 @@ target/release/gpg-wrapper
 
 ### Clipboard
 
-Clipboard operations use `arboard`. The Cargo manifest enables its Wayland data-control backend, while keeping its Linux X11/XWayland support available.
+Clipboard operations use `arboard`. Linux enables its Wayland data-control backend; macOS uses the native macOS clipboard APIs.
 
 ### GPG trust
 
