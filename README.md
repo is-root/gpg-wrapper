@@ -54,7 +54,7 @@ Using Homebrew:
 brew install gnupg
 ```
 
-The macOS release is currently an unsigned `.dmg`. macOS may require opening it through **System Settings → Privacy & Security → Open Anyway**. Code signing and notarization are not included yet.
+The macOS release is an unsigned universal `.dmg` containing a binary for both Intel and Apple Silicon Macs. macOS may require opening it through **System Settings → Privacy & Security → Open Anyway**. Code signing and notarization are not included yet.
 
 ## Build from source
 
