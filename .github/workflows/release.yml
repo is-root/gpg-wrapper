@@ -92,7 +92,13 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
-          generate_release_notes: true
+          generate_release_notes: false
+          body: |
+            ## Changelog
+
+            - Universal macOS binary for Intel and Apple Silicon.
+            - Native macOS icon metadata and validated app bundle.
+            - Unsigned macOS DMG; Gatekeeper may require **Open Anyway**.
           files: |
             dist/*.dmg
             dist/SHA256SUMS-macos
@@ -190,7 +196,13 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
-          generate_release_notes: true
+          generate_release_notes: false
+          body: |
+            ## Changelog
+
+            - Linux x86_64 executable archive.
+            - Linux x86_64 AppImage.
+            - Included stylized padlock icon and desktop metadata.
           files: |
             dist/*.tar.gz
             dist/*.AppImage
