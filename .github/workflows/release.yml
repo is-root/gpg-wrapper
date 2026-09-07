@@ -35,6 +35,9 @@ jobs:
             -output target/universal-apple-darwin/release/gpg-wrapper
           file target/universal-apple-darwin/release/gpg-wrapper
 
+      - name: Install icon conversion tools
+        run: brew install librsvg
+
       - name: Package app and DMG
         shell: bash
         run: |
@@ -50,16 +53,16 @@ jobs:
           # Convert the SVG to the native macOS .icns format and register it
           # in the bundle metadata. The SVG remains as a fallback resource.
           mkdir -p /tmp/gpg-wrapper.iconset
-          sips -z 16 16 assets/gpg-wrapper-padlock.svg --out /tmp/gpg-wrapper.iconset/icon_16x16.png >/dev/null
-          sips -z 32 32 assets/gpg-wrapper-padlock.svg --out /tmp/gpg-wrapper.iconset/icon_16x16@2x.png >/dev/null
-          sips -z 32 32 assets/gpg-wrapper-padlock.svg --out /tmp/gpg-wrapper.iconset/icon_32x32.png >/dev/null
-          sips -z 64 64 assets/gpg-wrapper-padlock.svg --out /tmp/gpg-wrapper.iconset/icon_32x32@2x.png >/dev/null
-          sips -z 128 128 assets/gpg-wrapper-padlock.svg --out /tmp/gpg-wrapper.iconset/icon_128x128.png >/dev/null
-          sips -z 256 256 assets/gpg-wrapper-padlock.svg --out /tmp/gpg-wrapper.iconset/icon_128x128@2x.png >/dev/null
-          sips -z 256 256 assets/gpg-wrapper-padlock.svg --out /tmp/gpg-wrapper.iconset/icon_256x256.png >/dev/null
-          sips -z 512 512 assets/gpg-wrapper-padlock.svg --out /tmp/gpg-wrapper.iconset/icon_256x256@2x.png >/dev/null
-          sips -z 512 512 assets/gpg-wrapper-padlock.svg --out /tmp/gpg-wrapper.iconset/icon_512x512.png >/dev/null
-          sips -z 1024 1024 assets/gpg-wrapper-padlock.svg --out /tmp/gpg-wrapper.iconset/icon_512x512@2x.png >/dev/null
+          rsvg-convert -w 16 -h 16 assets/gpg-wrapper-padlock.svg -o /tmp/gpg-wrapper.iconset/icon_16x16.png
+          rsvg-convert -w 32 -h 32 assets/gpg-wrapper-padlock.svg -o /tmp/gpg-wrapper.iconset/icon_16x16@2x.png
+          rsvg-convert -w 32 -h 32 assets/gpg-wrapper-padlock.svg -o /tmp/gpg-wrapper.iconset/icon_32x32.png
+          rsvg-convert -w 64 -h 64 assets/gpg-wrapper-padlock.svg -o /tmp/gpg-wrapper.iconset/icon_32x32@2x.png
+          rsvg-convert -w 128 -h 128 assets/gpg-wrapper-padlock.svg -o /tmp/gpg-wrapper.iconset/icon_128x128.png
+          rsvg-convert -w 256 -h 256 assets/gpg-wrapper-padlock.svg -o /tmp/gpg-wrapper.iconset/icon_128x128@2x.png
+          rsvg-convert -w 256 -h 256 assets/gpg-wrapper-padlock.svg -o /tmp/gpg-wrapper.iconset/icon_256x256.png
+          rsvg-convert -w 512 -h 512 assets/gpg-wrapper-padlock.svg -o /tmp/gpg-wrapper.iconset/icon_256x256@2x.png
+          rsvg-convert -w 512 -h 512 assets/gpg-wrapper-padlock.svg -o /tmp/gpg-wrapper.iconset/icon_512x512.png
+          rsvg-convert -w 1024 -h 1024 assets/gpg-wrapper-padlock.svg -o /tmp/gpg-wrapper.iconset/icon_512x512@2x.png
           iconutil -c icns /tmp/gpg-wrapper.iconset -o "${APP}/Contents/Resources/gpg-wrapper-padlock.icns"
           cat > "${APP}/Contents/Info.plist" <<'PLIST'
           <?xml version="1.0" encoding="UTF-8"?>
