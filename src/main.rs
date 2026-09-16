@@ -53,6 +53,8 @@ impl InputSource {
 enum CryptoAction {
     Encrypt,
     Decrypt,
+    Sign,
+    Verify,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -410,6 +412,8 @@ impl GpgApp {
         match self.crypto_action {
             CryptoAction::Encrypt => self.encrypt(),
             CryptoAction::Decrypt => self.decrypt(),
+            CryptoAction::Sign => self.sign(),
+            CryptoAction::Verify => self.verify_signature(),
         }
     }
 
@@ -458,6 +462,53 @@ impl GpgApp {
         }
     }
 
+    fn sign(&mut self) {
+        let input = self.crypto_text.clone();
+        if input.is_empty() {
+            self.set_error(anyhow!("Enter a message to sign"));
+            return;
+        }
+        let key = match self.selected_key() {
+            Ok(key) => key.clone(),
+            Err(e) => {
+                self.set_error(e);
+                return;
+            }
+        };
+        match gpg_run_with_stdin(
+            &["--local-user", &key.fingerprint, "--armor", "--clearsign"],
+            input.as_bytes(),
+        ) {
+            Ok(out) => {
+                self.crypto_text = out.stdout_text;
+                self.status = format!("Created clear-signed message with {}", key.uid);
+                self.error = None;
+            }
+            Err(e) => self.set_error(e),
+        }
+    }
+
+    fn verify_signature(&mut self) {
+        let input = self.crypto_text.clone();
+        if input.is_empty() {
+            self.set_error(anyhow!("Enter an armored signed message to verify"));
+            return;
+        }
+        match gpg_run_with_stdin(&["--verify"], input.as_bytes()) {
+            Ok(out) => {
+                let verification = if out.stderr_text.trim().is_empty() {
+                    "Signature verified".to_owned()
+                } else {
+                    out.stderr_text.trim().to_owned()
+                };
+                self.crypto_text = verification;
+                self.status = "Signature verified".to_owned();
+                self.error = None;
+            }
+            Err(e) => self.set_error(e),
+        }
+    }
+
     fn decrypt(&mut self) {
         let input = self.crypto_text.clone();
         if input.is_empty() {
@@ -499,6 +550,8 @@ impl GpgApp {
             .set_file_name(match self.crypto_action {
                 CryptoAction::Encrypt => "encrypted.asc",
                 CryptoAction::Decrypt => "decrypted.txt",
+                CryptoAction::Sign => "signed.asc",
+                CryptoAction::Verify => "verified.txt",
             })
             .save_file()
         else {
@@ -652,10 +705,12 @@ impl eframe::App for GpgApp {
                 });
 
                 // Right: crypto
-                cols[1].heading("Encrypt / decrypt");
-                cols[1].horizontal(|ui| {
+                cols[1].heading("Encrypt / decrypt / sign");
+                cols[1].horizontal_wrapped(|ui| {
                     ui.radio_value(&mut self.crypto_action, CryptoAction::Encrypt, "Encrypt");
                     ui.radio_value(&mut self.crypto_action, CryptoAction::Decrypt, "Decrypt");
+                    ui.radio_value(&mut self.crypto_action, CryptoAction::Sign, "Sign");
+                    ui.radio_value(&mut self.crypto_action, CryptoAction::Verify, "Verify signature");
                 });
                 cols[1].horizontal(|ui| {
                     ui.label("Input");
@@ -671,7 +726,7 @@ impl eframe::App for GpgApp {
                     }
                 });
 
-                if self.crypto_action == CryptoAction::Encrypt {
+                if matches!(self.crypto_action, CryptoAction::Encrypt | CryptoAction::Sign) {
                     if let Ok(key) = self.selected_key() {
                         cols[1].label(format!(
                             "Recipient: {} ({})",
@@ -681,8 +736,10 @@ impl eframe::App for GpgApp {
                     } else {
                         cols[1].label("Recipient: select a key in the key list");
                     }
-                } else {
+                } else if self.crypto_action == CryptoAction::Decrypt {
                     cols[1].label("Decrypt uses available secret keys via GnuPG/pinentry");
+                } else {
+                    cols[1].label("Verify an armored clear-signed message in the text box");
                 }
 
                 cols[1].add_sized(
@@ -697,6 +754,8 @@ impl eframe::App for GpgApp {
                         .button(match self.crypto_action {
                             CryptoAction::Encrypt => "Encrypt",
                             CryptoAction::Decrypt => "Decrypt",
+                            CryptoAction::Sign => "Sign",
+                            CryptoAction::Verify => "Verify signature",
                         })
                         .clicked()
                     {
