@@ -819,8 +819,35 @@ fn short_fingerprint(fpr: &str) -> String {
     format!("{}…{}", &fpr[..10], &fpr[fpr.len() - 10..])
 }
 
+/// Apps launched from Finder or the Dock inherit launchd's minimal PATH, which
+/// does not include the usual Homebrew, MacPorts, or GPG Suite locations.
+#[cfg(target_os = "macos")]
+fn gpg_search_path() -> &'static std::ffi::OsStr {
+    static SEARCH_PATH: std::sync::OnceLock<std::ffi::OsString> = std::sync::OnceLock::new();
+    SEARCH_PATH.get_or_init(|| {
+        let mut dirs: Vec<std::path::PathBuf> = std::env::var_os("PATH")
+            .map(|path| std::env::split_paths(&path).collect())
+            .unwrap_or_default();
+        for extra in [
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            "/usr/local/MacGPG2/bin",
+            "/opt/local/bin",
+        ] {
+            let extra = std::path::PathBuf::from(extra);
+            if !dirs.contains(&extra) {
+                dirs.push(extra);
+            }
+        }
+        std::env::join_paths(dirs).unwrap_or_default()
+    })
+}
+
 fn gpg_command() -> Command {
     let mut cmd = Command::new("gpg");
+    // Setting PATH on the command also makes it the search path for "gpg".
+    #[cfg(target_os = "macos")]
+    cmd.env("PATH", gpg_search_path());
     cmd.env("LC_ALL", "C");
     cmd.env("LANG", "C");
     // Crypto operations must never wait for an interactive terminal or

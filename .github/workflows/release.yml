@@ -64,7 +64,7 @@ jobs:
           rsvg-convert -w 512 -h 512 assets/gpg-wrapper-padlock.svg -o /tmp/gpg-wrapper.iconset/icon_512x512.png
           rsvg-convert -w 1024 -h 1024 assets/gpg-wrapper-padlock.svg -o /tmp/gpg-wrapper.iconset/icon_512x512@2x.png
           iconutil -c icns /tmp/gpg-wrapper.iconset -o "${APP}/Contents/Resources/gpg-wrapper-padlock.icns"
-          cat > "${APP}/Contents/Info.plist" <<'PLIST'
+          cat > "${APP}/Contents/Info.plist" <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0"><dict>
@@ -80,6 +80,7 @@ jobs:
           </dict></plist>
           PLIST
           plutil -lint "${APP}/Contents/Info.plist"
+          test "$(plutil -extract CFBundleShortVersionString raw "${APP}/Contents/Info.plist")" = "${VERSION#v}"
           codesign --force --deep --sign - "${APP}"
           codesign --verify --deep --strict --verbose=2 "${APP}"
 
