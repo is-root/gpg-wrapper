@@ -25,6 +25,8 @@ jobs:
           rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
       - name: Build universal binary
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "11.0"
         run: |
           cargo build --release --target aarch64-apple-darwin
           cargo build --release --target x86_64-apple-darwin
@@ -68,15 +70,20 @@ jobs:
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0"><dict>
+            <key>CFBundleDevelopmentRegion</key><string>en</string>
             <key>CFBundleDisplayName</key><string>GPG Wrapper</string>
             <key>CFBundleExecutable</key><string>gpg-wrapper</string>
             <key>CFBundleIdentifier</key><string>com.isroot.gpg-wrapper</string>
+            <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
             <key>CFBundleIconFile</key><string>gpg-wrapper-padlock</string>
             <key>CFBundleIconName</key><string>gpg-wrapper-padlock</string>
             <key>CFBundleName</key><string>GPG Wrapper</string>
             <key>CFBundlePackageType</key><string>APPL</string>
             <key>CFBundleShortVersionString</key><string>${VERSION#v}</string>
             <key>CFBundleVersion</key><string>${VERSION#v}</string>
+            <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
+            <key>LSMinimumSystemVersion</key><string>11.0</string>
+            <key>NSHighResolutionCapable</key><true/>
           </dict></plist>
           PLIST
           plutil -lint "${APP}/Contents/Info.plist"
@@ -84,8 +91,14 @@ jobs:
           codesign --force --deep --sign - "${APP}"
           codesign --verify --deep --strict --verbose=2 "${APP}"
 
+          # Stage the DMG contents with an Applications shortcut so the app
+          # can be installed by dragging it across.
+          mkdir -p dist/dmg
+          cp -R "${APP}" dist/dmg/
+          ln -s /Applications dist/dmg/Applications
+
           hdiutil create -volname "GPG Wrapper ${VERSION}" \
-            -srcfolder "dist/GPG Wrapper.app" \
+            -srcfolder dist/dmg \
             -ov -format UDZO "dist/gpg-wrapper-${VERSION}-macos-universal.dmg"
 
           shasum -a 256 "dist/gpg-wrapper-${VERSION}-macos-universal.dmg" > dist/SHA256SUMS-macos
@@ -99,7 +112,9 @@ jobs:
 
             - Universal macOS binary for Intel and Apple Silicon.
             - Native macOS icon metadata and validated app bundle.
-            - Unsigned macOS DMG; Gatekeeper may require **Open Anyway**.
+            - Drag **GPG Wrapper** onto the Applications shortcut in the DMG to install.
+            - The app is not notarized. If macOS reports it as damaged or unverified, run
+              `xattr -dr com.apple.quarantine "/Applications/GPG Wrapper.app"` once, then open it.
           files: |
             dist/*.dmg
             dist/SHA256SUMS-macos

@@ -54,7 +54,15 @@ Using Homebrew:
 brew install gnupg
 ```
 
-The macOS release is an unsigned universal `.dmg` containing a binary for both Intel and Apple Silicon Macs. macOS may require opening it through **System Settings → Privacy & Security → Open Anyway**. Code signing and notarization are not included yet.
+The macOS release is a universal `.dmg` for both Intel and Apple Silicon Macs. Open it and drag **GPG Wrapper** onto the **Applications** shortcut.
+
+The app is ad-hoc signed but not notarized, so Gatekeeper blocks it after download, typically reporting it as damaged or from an unverified developer. Clear the download quarantine once after installing:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/GPG Wrapper.app"
+```
+
+Alternatively, try to open it once, then allow it under **System Settings → Privacy & Security → Open Anyway**.
 
 ## Build from source
 
